@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>优化版手机RPG</title>
+	<style>
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+		}
+
+		body {
+			font-family: Arial, sans-serif;
+			background: #2c3e50;
+			color: white;
+			padding: 10px;
+		}
+
+		.auth-box {
+			background: #34495e;
+			padding: 20px;
+			border-radius: 10px;
+			margin: 20px auto;
+			max-width: 400px;
+		}
+
+		input {
+			width: 100%;
+			padding: 12px;
+			margin: 8px 0;
+			border: none;
+			border-radius: 5px;
+			background: #ecf0f1;
+		}
+
+		button {
+			width: 100%;
+			padding: 15px;
+			margin: 5px 0;
+			border: none;
+			border-radius: 8px;
+			background: #27ae60;
+			color: white;
+			font-size: 16px;
+		}
+
+		.game-container {
+			display: none;
+		}
+
+		.status-bar {
+			background: #34495e;
+			padding: 15px;
+			border-radius: 10px;
+			margin: 10px 0;
+		}
+
+		.monster-panel {
+			background: #e74c3c;
+			padding: 20px;
+			border-radius: 10px;
+			margin: 10px 0;
+			text-align: center;
+		}
+
+		.hp-bar {
+			width: 100%;
+			height: 20px;
+			background: #7f8c8d;
+			border-radius: 10px;
+			overflow: hidden;
+			margin: 10px 0;
+		}
+
+		.hp-inner {
+			width: 100%;
+			height: 100%;
+			background: #2ecc71;
+			transition: width 0.3s;
+		}
+
+		.battle-log {
+			background: #2c3e50;
+			padding: 15px;
+			border-radius: 10px;
+			height: 200px;
+			overflow-y: auto;
+			margin: 10px 0;
+			font-size: 14px;
+		}
+
+		.exp-info {
+			font-size: 0.8em;
+			color: #95a5a6;
+		}
+	</style>
+</head>
+<body>
+	<!-- 登录界面 -->
+	<div class="auth-box" id="auth">
+		<h2>注册/登录</h2>
+		<input type="text" placeholder="用户名" id="username">
+		<input type="password" placeholder="密码" id="password">
+		<input type="text" placeholder="角色名" id="characterName">
+		<button onclick="register()">注册</button>
+		<button onclick="login()">登录</button>
+	</div>
+
+	<!-- 游戏界面 -->
+	<div class="game-container" id="game">
+		<div class="status-bar">
+			<div>👑 称号: <span id="title">新手</span></div>
+			<div>🏰 关卡: <span id="stage">1</span>/10</div>
+			<div>👩🏻‍🎤 <span id="charName"></span> 
+				Lv.<span id="level">1</span>
+				<span class="exp-info">(<span id="currentExp">0</span>/<span id="requiredExp">100</span>)</span>
+			</div>
+			<div>❤️ 血量: <span id="hp">100</span>/<span id="maxHp">100</span></div>
+			<div>💰 金币: <span id="gold">0</span></div>
+			<div>⚔️ 攻击: <span id="attack">10</span></div>
+		</div>
+
+		<div class="monster-panel">
+			<div style="font-size: 3em" id="currentMonster">👿</div>
+			<div class="hp-bar">
+				<div class="hp-inner" id="monsterHpBar"></div>
+			</div>
+			<div>剩余敌人: <span id="monsterCount">10</span></div>
+			
+			<button onclick="manualAttack()" style="background: #e67e22">攻击</button>
+			<button onclick="toggleAutoAttack()" id="autoBtn" style="background: #3498db">自动战斗</button>
+			<button onclick="upgradeAttack()" style="background: #9b59b6">升级攻击 (💰<span id="upgradeCost">50</span>)</button>
+		</div>
+
+		<div class="battle-log" id="battleLog"></div>
+	</div>
+
+	<!-- 音效系统 -->
+	<audio id="attackSound" src="https://cdn.pixabay.com/download/audio/2022/03/07/audio_7ffcba099c.mp3"></audio>
+	<audio id="levelUpSound" src="https://cdn.pixabay.com/download/audio/2022/03/07/audio_1a4e0a5c8d.mp3"></audio>
+	<audio id="hurtSound" src="https://cdn.pixabay.com/download/audio/2022/03/07/audio_3e4c0a7d9c.mp3"></audio>
+	<audio id="deathSound" src="https://cdn.pixabay.com/download/audio/2022/03/07/audio_8d3c0b9e4c.mp3"></audio>
+
+<script>
+// 游戏配置
+const CONFIG = {
+	titles: ['新手', '学徒', '战士', '勇士', '英雄', '王者', '传奇', '半神', '战神', '无敌之神'],
+	baseExp: 100,
+	baseGold: 50,
+	baseMonsterHP: 100,
+	baseUpgradeCost: 50
+};
+
+// 游戏状态
+let player = null;
+let autoAttackInterval = null;
+const monsters = ['👿', '🤡', '👺', '👹', '💀', '☠️', '👁️', '🥷🏻', '🧟♂️', '👽'];
+
+// 音效管理
+function playSound(id) {
+	try {
+		const audio = document.getElementById(id);
+		audio.currentTime = 0;
+		audio.play().catch(() => {});
+	} catch(e) {}
+}
+
+// 移动端触摸支持
+document.addEventListener('touchstart', function(){}, { once: true });
+
+// 游戏逻辑
+function register() {
+	player = {
+		username: document.getElementById('username').value,
+		password: document.getElementById('password').value,
+		characterName: document.getElementById('characterName').value,
+		level: 1,
+		exp: 0,
+		gold: 0,
+		attack: 10,
+		hp: 100,
+		maxHp: 100,
+		stage: 1,
+		monsterHP: CONFIG.baseMonsterHP,
+		remainingMonsters: 10,
+		upgradeCount: 0
+	};
+	saveGame();
+	startGame();
+}
+
+function startGame() {
+	document.getElementById('auth').style.display = 'none';
+	document.getElementById('game').style.display = 'block';
+	updateUI();
+}
+
+function updateUI() {
+	// 角色信息
+	const titleIndex = Math.min(Math.floor(player.level / 3), CONFIG.titles.length - 1);
+	const requiredExp = CONFIG.baseExp * Math.pow(2, player.level - 1);
+	
+	document.getElementById('title').textContent = CONFIG.titles[titleIndex];
+	document.getElementById('charName').textContent = player.characterName;
+	document.getElementById('level').textContent = player.level;
+	document.getElementById('currentExp').textContent = player.exp;
+	document.getElementById('requiredExp').textContent = requiredExp;
+	document.getElementById('hp').textContent = player.hp;
+	document.getElementById('maxHp').textContent = player.maxHp;
+	document.getElementById('gold').textContent = player.gold;
+	document.getElementById('attack').textContent = player.attack;
+	document.getElementById('stage').textContent = player.stage;
+	document.getElementById('upgradeCost').textContent = getUpgradeCost();
+	
+	// 怪物信息
+	document.getElementById('currentMonster').textContent = monsters[player.stage-1];
+	document.getElementById('monsterCount').textContent = player.remainingMonsters;
+	const hpPercent = (player.monsterHP / calculateMonsterHP()) * 100;
+	document.getElementById('monsterHpBar').style.width = hpPercent + '%';
+}
+
+function manualAttack() {
+	// 玩家攻击
+	player.monsterHP -= player.attack;
+	playSound('attackSound');
+	log(`💥 对${monsters[player.stage-1]}造成 ${player.attack} 伤害`);
+
+	if(player.monsterHP <= 0) {
+		handleMonsterDefeat();
+	} else {
+		// 怪物反击
+		const monsterAttack = 5 * Math.pow(1.5, player.stage);
+		player.hp = Math.max(0, player.hp - monsterAttack);
+		log(`💢 受到 ${monsterAttack.toFixed(1)} 伤害！`);
+		playSound('hurtSound');
+		
+		if(player.hp <= 0) handleDeath();
+	}
+
+	checkLevelUp();
+	updateUI();
+	saveGame();
+}
+
+function handleMonsterDefeat() {
+	player.remainingMonsters--;
+	const goldEarned = CONFIG.baseGold * player.stage;
+	const expEarned = CONFIG.baseExp * player.stage;
+	player.gold += goldEarned;
+	player.exp += expEarned;
+	log(`🎉 击败敌人！获得 ${expEarned}经验 和 ${goldEarned}金币`);
+
+	if(player.remainingMonsters > 0) {
+		player.monsterHP = calculateMonsterHP();
+	} else {
+		nextStage();
+	}
+}
+
+function nextStage() {
+	if(player.stage < 10) {
+		player.stage++;
+		player.remainingMonsters = 10;
+		player.monsterHP = calculateMonsterHP();
+		log(`🚩 进入第 ${player.stage} 关！`);
+	} else {
+		log("🏆 恭喜击败最终BOSS！");
+	}
+	updateUI();
+}
+
+function calculateMonsterHP() {
+	return CONFIG.baseMonsterHP * Math.pow(1.5, player.stage-1);
+}
+
+function getUpgradeCost() {
+	return Math.floor(CONFIG.baseUpgradeCost * Math.pow(1.5, player.upgradeCount));
+}
+
+function toggleAutoAttack() {
+	const btn = document.getElementById('autoBtn');
+	if(autoAttackInterval) {
+		clearInterval(autoAttackInterval);
+		autoAttackInterval = null;
+		btn.textContent = '▶️ 自动战斗';
+	} else {
+		autoAttackInterval = setInterval(() => {
+			if(player.hp > 0) manualAttack();
+		}, 1500);
+		btn.textContent = '⏸️ 停止自动';
+	}
+}
+
+function upgradeAttack() {
+	const cost = getUpgradeCost();
+	if(player.gold >= cost) {
+		player.gold -= cost;
+		player.attack += 5;
+		player.upgradeCount++;
+		log(`🔼 攻击力+5 (下次升级需: ${getUpgradeCost()}金币)`);
+		updateUI();
+		saveGame();
+	} else {
+		log("❌ 金币不足！");
+	}
+}
+
+function checkLevelUp() {
+	const requiredExp = CONFIG.baseExp * Math.pow(2, player.level - 1);
+	if(player.exp >= requiredExp) {
+		player.level++;
+		player.exp -= requiredExp;
+		player.maxHp = 100 + Math.floor(30 * Math.sqrt(player.level));
+		player.hp = player.maxHp;
+		playSound('levelUpSound');
+		log(`✨ 升级到 Lv.${player.level} 需要经验：${CONFIG.baseExp * Math.pow(2, player.level - 1)}`);
+		updateUI();
+	}
+}
+
+function handleDeath() {
+	playSound('deathSound');
+	
+	// 只重置战斗相关状态
+	player.stage = 1;
+	player.hp = player.maxHp;
+	player.remainingMonsters = 10;
+	player.monsterHP = calculateMonsterHP();
+	
+	log("💀 你被击败了！已重置关卡并恢复血量");
+	log("🔁 保留金币、等级和攻击力进度");
+	
+	clearInterval(autoAttackInterval);
+	autoAttackInterval = null;
+	updateUI();
+	saveGame();
+}
+
+function log(message) {
+	const logElement = document.getElementById('battleLog');
+	logElement.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}<br>` + logElement.innerHTML;
+}
+
+function saveGame() {
+	localStorage.setItem(player.username, JSON.stringify(player));
+}
+
+function login() {
+	const username = document.getElementById('username').value;
+	const password = document.getElementById('password').value;
+	const savedPlayer = JSON.parse(localStorage.getItem(username));
+	
+	if(savedPlayer && savedPlayer.password === password) {
+		player = savedPlayer;
+		startGame();
+	} else {
+		alert('登录失败，请检查账号密码');
+	}
+}
+</script>
+</body>
+</html>
